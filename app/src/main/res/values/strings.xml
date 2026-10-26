@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">NexusGraph</string>
+    <string name="tab_workspace">总览</string>
+    <string name="tab_graph">画板</string>
+    <string name="tab_nodes">节点</string>
+    <string name="tab_search">检索</string>
+    <string name="action_new_node">新节点</string>
+    <string name="action_new_edge">新建关系</string>
+    <string name="action_edit_node">打开文档</string>
+    <string name="action_delete_node">删除</string>
+    <string name="action_save_node">保存</string>
+    <string name="action_reset_demo">重置示例</string>
+    <string name="action_center_canvas">复位</string>
+    <string name="action_auto_layout">环形</string>
+    <string name="hint_search_nodes">输入标题、正文或 #标签…</string>
+    <string name="label_markdown_edit">源码</string>
+    <string name="label_markdown_preview">预览</string>
+    <string name="label_markdown_split">分屏</string>
+</resources>

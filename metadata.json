@@ -1,0 +1,6 @@
+{
+  "name": "NexusGraph",
+  "description": "Local-first knowledge graph workbench with Markdown node editor and interactive relationship canvas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
