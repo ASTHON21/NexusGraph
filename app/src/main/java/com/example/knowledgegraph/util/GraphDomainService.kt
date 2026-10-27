@@ -35,7 +35,7 @@ object GraphDomainService {
         val boardIndex = boards.indexOfFirst { it.id == boardId }.coerceAtLeast(0)
         if (boardIndex == 0) return Offset.Zero
         val sectorAngle = boardIndex * (2.0 * PI / 6.0)
-        val ringRadius = 260f * ((boardIndex - 1) / 6 + 1)
+        val ringRadius = 420f * ((boardIndex - 1) / 6 + 1)
         return Offset(
             x = (ringRadius * cos(sectorAngle)).toFloat(),
             y = (ringRadius * sin(sectorAngle)).toFloat()

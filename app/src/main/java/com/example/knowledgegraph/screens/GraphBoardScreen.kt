@@ -111,7 +111,7 @@ fun GraphBoardScreen(
 
     LaunchedEffect(appUiState.activeBoardId) {
         val targetNodes = appUiState.canvasNodeUiList.map { it.node }
-        graphViewModel.fitViewportToNodes(targetNodes, resetScale = false)
+        graphViewModel.fitViewportToNodes(targetNodes, resetScale = true)
     }
 
     val activeSelectedNodeId = canvasState.selectedNodeId ?: appUiState.selectedNodeId
@@ -439,6 +439,41 @@ fun GraphBoardScreen(
                 }
             }
 
+            // 2.5 连线模式下：从已选起点向视野内候选终点绘制微光虚线引导线
+            val connectSourceNode = if (canvasState.isConnectMode && canvasState.connectSourceNodeId != null) {
+                nodeUiMap[canvasState.connectSourceNodeId]?.node
+            } else {
+                null
+            }
+            if (connectSourceNode != null) {
+                val srcScreen = GraphLayoutHelper.worldToScreen(
+                    connectSourceNode.x,
+                    connectSourceNode.y,
+                    center,
+                    pan,
+                    scale
+                )
+                val activeRelColor = NodeColorUtil.relationColor(canvasState.activeRelationType)
+                displayNodeUiList.forEach { targetUi ->
+                    if (targetUi.node.id != connectSourceNode.id) {
+                        val dstScreen = GraphLayoutHelper.worldToScreen(
+                            targetUi.node.x,
+                            targetUi.node.y,
+                            center,
+                            pan,
+                            scale
+                        )
+                        drawLine(
+                            color = activeRelColor.copy(alpha = 0.24f),
+                            start = srcScreen,
+                            end = dstScreen,
+                            strokeWidth = 2.2f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 12f), 0f)
+                        )
+                    }
+                }
+            }
+
             // 3. 绘制所有可见节点（带视口裁剪）
             displayNodeUiList.forEach { nodeUi ->
                 val node = nodeUi.node
@@ -453,6 +488,9 @@ fun GraphBoardScreen(
                 val boardColor = NodeColorUtil.parseColor(nodeUi.boardColorHex)
                 val isSelected = node.id == activeSelectedNodeId
                 val isConnectSource = canvasState.isConnectMode && canvasState.connectSourceNodeId == node.id
+                val isConnectCandidate = canvasState.isConnectMode &&
+                    canvasState.connectSourceNodeId != null &&
+                    canvasState.connectSourceNodeId != node.id
 
                 if (isSelected || isConnectSource) {
                     drawCircle(
@@ -472,6 +510,16 @@ fun GraphBoardScreen(
                         radius = scaledRadius + 7f,
                         center = screenPos,
                         style = Stroke(width = 4f)
+                    )
+                } else if (isConnectCandidate) {
+                    drawCircle(
+                        color = NodeColorUtil.relationColor(canvasState.activeRelationType).copy(alpha = 0.75f),
+                        radius = scaledRadius + 6f,
+                        center = screenPos,
+                        style = Stroke(
+                            width = 2.8f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+                        )
                     )
                 }
 

@@ -337,16 +337,17 @@ fun KnowledgeGraphApp(container: AppContainer) {
                     onDismiss = { showCreateNodeDialog = false },
                     onConfirm = { title, markdown, tags, colorHex, boardId ->
                         showCreateNodeDialog = false
-                        val spawnCenter = graphViewModel.currentViewportCenterWorld()
                         knowledgeViewModel.createNewNode(
                             title = title,
                             markdownContent = markdown,
                             tagList = tags,
                             color = colorHex,
                             boardId = boardId,
-                            spawnCenterWorld = spawnCenter,
                             onCreated = { created ->
-                                graphViewModel.selectNode(created.id)
+                                if (appUiState.activeBoardId != null && appUiState.activeBoardId != created.boardId) {
+                                    knowledgeViewModel.selectActiveBoard(created.boardId)
+                                }
+                                graphViewModel.centerOnNode(created)
                             }
                         )
                     }

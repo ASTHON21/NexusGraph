@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.min
 
 data class GraphCanvasUiState(
     val scale: Float = 0.95f,
@@ -31,7 +32,7 @@ data class GraphCanvasUiState(
 /**
  * 关系网画板专用 ViewModel：
  * - 支持围绕双指质心 (Centroid) 的无漂移缩放与画布平移
- * - 支持切换主题或点击复位时自动对焦到可见节点群几何中心
+ * - 支持根据节点群包围盒（Bounding Box）自动计算最佳缩放比例与居中偏移
  * - 支持最多 15 步节点坐标撤销栈（覆盖单节点拖拽与算法批量排布）
  */
 class GraphViewModel(
@@ -53,9 +54,6 @@ class GraphViewModel(
         _canvasState.update { it.copy(canUndo = positionUndoStack.isNotEmpty()) }
     }
 
-    /**
-     * 围绕双指触摸质心 (centroid) 进行平滑缩放与平移，避免缩放时画面跳变偏移
-     */
     fun onCentroidTransform(
         centroid: Offset,
         canvasCenter: Offset,
@@ -81,9 +79,6 @@ class GraphViewModel(
         }
     }
 
-    /**
-     * 计算当前画布视野中心对应的世界坐标
-     */
     fun currentViewportCenterWorld(): Offset {
         val state = _canvasState.value
         val safeScale = state.scale.coerceAtLeast(0.2f)
@@ -102,23 +97,54 @@ class GraphViewModel(
     }
 
     /**
-     * 将画布视口自动对准指定节点集合的几何中心；若节点集合为空则回到世界原点 (0, 0)
+     * 根据节点集合的包围盒自动计算最佳缩放比例与中心平移，使全图节点完整居中呈现
      */
-    fun fitViewportToNodes(nodes: List<NodeData>, resetScale: Boolean = true) {
+    fun fitViewportToNodes(
+        nodes: List<NodeData>,
+        resetScale: Boolean = true,
+        viewportWidthWorld: Float = 860f,
+        viewportHeightWorld: Float = 1050f
+    ) {
+        fitViewportToCoordinates(
+            coords = nodes.map { it.x to it.y },
+            resetScale = resetScale,
+            viewportWidthWorld = viewportWidthWorld,
+            viewportHeightWorld = viewportHeightWorld
+        )
+    }
+
+    private fun fitViewportToCoordinates(
+        coords: List<Pair<Float, Float>>,
+        resetScale: Boolean = true,
+        viewportWidthWorld: Float = 860f,
+        viewportHeightWorld: Float = 1050f
+    ) {
         _canvasState.update { state ->
-            val targetScale = if (resetScale) 0.95f else state.scale
-            if (nodes.isEmpty()) {
+            if (coords.isEmpty()) {
                 state.copy(
-                    scale = targetScale,
+                    scale = if (resetScale) 0.95f else state.scale,
                     panOffset = Offset.Zero
                 )
             } else {
-                val minX = nodes.minOf { it.x }
-                val maxX = nodes.maxOf { it.x }
-                val minY = nodes.minOf { it.y }
-                val maxY = nodes.maxOf { it.y }
+                val minX = coords.minOf { it.first }
+                val maxX = coords.maxOf { it.first }
+                val minY = coords.minOf { it.second }
+                val maxY = coords.maxOf { it.second }
                 val centerX = (minX + maxX) / 2f
                 val centerY = (minY + maxY) / 2f
+
+                val targetScale = if (!resetScale) {
+                    state.scale
+                } else if (coords.size == 1) {
+                    1.0f
+                } else {
+                    val spanX = (maxX - minX) + 340f
+                    val spanY = (maxY - minY) + 360f
+                    val scaleX = viewportWidthWorld / spanX
+                    val scaleY = viewportHeightWorld / spanY
+                    min(scaleX, scaleY).coerceIn(0.48f, 1.05f)
+                }
+
                 state.copy(
                     scale = targetScale,
                     panOffset = Offset(
@@ -136,11 +162,13 @@ class GraphViewModel(
 
     fun centerOnNode(node: NodeData) {
         _canvasState.update { state ->
+            val targetScale = state.scale.coerceIn(0.8f, 1.25f)
             state.copy(
                 selectedNodeId = node.id,
+                scale = targetScale,
                 panOffset = Offset(
-                    x = -node.x * state.scale,
-                    y = -node.y * state.scale
+                    x = -node.x * targetScale,
+                    y = -node.y * targetScale
                 )
             )
         }
@@ -204,7 +232,6 @@ class GraphViewModel(
                         type = relType,
                         label = relType.labelCn
                     )
-                    // 保持连线模式不中断，清空起点以便继续连接下一对节点
                     _canvasState.update {
                         it.copy(
                             connectSourceNodeId = null,
@@ -226,8 +253,8 @@ class GraphViewModel(
         _canvasState.update { state ->
             val currentPos = state.liveNodeOffsets[node.id] ?: Offset(node.x, node.y)
             val nextPos = Offset(
-                x = (currentPos.x + worldDelta.x).coerceIn(-1600f, 1600f),
-                y = (currentPos.y + worldDelta.y).coerceIn(-1600f, 1600f)
+                x = (currentPos.x + worldDelta.x).coerceIn(-2800f, 2800f),
+                y = (currentPos.y + worldDelta.y).coerceIn(-2800f, 2800f)
             )
             state.copy(
                 selectedNodeId = node.id,
@@ -275,10 +302,13 @@ class GraphViewModel(
             _canvasState.update {
                 it.copy(
                     layoutMode = mode,
-                    liveNodeOffsets = emptyMap(),
-                    panOffset = Offset.Zero
+                    liveNodeOffsets = emptyMap()
                 )
             }
+            fitViewportToCoordinates(
+                coords = newPositions.values.toList(),
+                resetScale = true
+            )
         }
     }
 
@@ -293,6 +323,10 @@ class GraphViewModel(
         }
         viewModelScope.launch {
             repository.updateMultipleNodePositions(snapshot)
+            fitViewportToCoordinates(
+                coords = snapshot.values.toList(),
+                resetScale = false
+            )
         }
     }
 }

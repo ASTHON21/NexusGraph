@@ -121,16 +121,28 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `GraphLayoutHelper finds non-overlapping spawn positions`() {
+    fun `GraphLayoutHelper finds non-overlapping spawn positions and layouts stay separated`() {
         val existing = listOf(
             NodeData("n1", "Origin", "", emptyList(), "#6366F1", 0f, 0f, 1L, 1L, "b1")
         )
         val spawned = GraphLayoutHelper.findNonOverlappingSpawnPosition(
             viewportCenterWorld = Offset.Zero,
             existingNodes = existing,
-            minDistanceWorld = 120f
+            minDistanceWorld = 210f
         )
         val dist = kotlin.math.hypot(spawned.x, spawned.y)
-        assertTrue("Expected distance >= 120f but got $dist", dist >= 119f)
+        assertTrue("Expected distance >= 205f but got $dist", dist >= 205f)
+
+        val collinearNodes = (1..6).map { i ->
+            NodeData("n_$i", "节点 $i", "", emptyList(), "#6366F1", 950f, i * 10f, 1L, 1L, "b1")
+        }
+        val forcePositions = GraphLayoutHelper.computeForceDirectedLayout(collinearNodes, emptyList())
+        val coords = forcePositions.values.toList()
+        for (i in coords.indices) {
+            for (j in i + 1 until coords.size) {
+                val d = kotlin.math.hypot(coords[i].first - coords[j].first, coords[i].second - coords[j].second)
+                assertTrue("Expected force layout nodes >= 200f apart, got $d", d >= 200f)
+            }
+        }
     }
 }
