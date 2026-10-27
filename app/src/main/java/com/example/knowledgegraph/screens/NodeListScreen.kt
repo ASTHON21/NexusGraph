@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
@@ -33,6 +35,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.knowledgegraph.model.AppUiState
@@ -123,7 +127,7 @@ fun NodeListScreen(
             }
         }
 
-        // 主题画板切换与排序芯片行
+        // 主题画板切换芯片行
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -178,164 +182,240 @@ fun NodeListScreen(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(
-                items = filteredAndSorted,
-                key = { it.node.id }
-            ) { nodeUi ->
-                val node = nodeUi.node
-                val nodeColor = NodeColorUtil.parseColor(node.color)
-                val boardColor = NodeColorUtil.parseColor(nodeUi.boardColorHex)
-
-                ElevatedCard(
-                    shape = RoundedCornerShape(16.dp),
+        if (filteredAndSorted.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                OutlinedCard(
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier
+                        .widthIn(max = 400.dp)
                         .fillMaxWidth()
-                        .border(
-                            width = if (nodeUi.isSelected) 2.dp else 0.dp,
-                            color = if (nodeUi.isSelected) nodeColor else MaterialTheme.colorScheme.surface,
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .clickable {
-                            knowledgeViewModel.selectNode(node.id)
-                            onOpenNodeDetail(node.id)
-                        }
-                        .testTag("node_list_card_${node.id}")
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .clip(CircleShape)
-                                        .background(nodeColor)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = node.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    color = boardColor.copy(alpha = 0.16f),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Text(
-                                        text = if (nodeUi.isCrossBoard) {
-                                            "跨界·${nodeUi.boardName}"
-                                        } else {
-                                            nodeUi.boardName
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = boardColor,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = DateTimeFormatter.formatRelativeOrShort(node.updatedAt),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
+                        Icon(
+                            imageVector = Icons.Default.FormatListBulleted,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
                         Text(
-                            text = node.summarySnippet,
+                            text = if (appUiState.nodes.isEmpty()) {
+                                "暂无任何知识节点"
+                            } else {
+                                "「${appUiState.activeBoard?.name ?: "当前筛选"}」下暂无匹配节点"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = if (appUiState.nodes.isEmpty()) {
+                                "点击下方「新节点」开始构建你的第一条知识文档。"
+                            } else {
+                                "可切换至「全部主题」查看全局 ${appUiState.nodes.size} 个节点，或在当前主题下新建节点。"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            textAlign = TextAlign.Center
                         )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (appUiState.activeBoardId != null && appUiState.nodes.isNotEmpty()) {
+                                FilledTonalButton(
+                                    onClick = { knowledgeViewModel.selectActiveBoard(null) }
+                                ) {
+                                    Text("查看全部主题")
+                                }
+                            }
+                            if (appUiState.selectedTag != null) {
+                                FilledTonalButton(
+                                    onClick = { knowledgeViewModel.clearFilters() }
+                                ) {
+                                    Text("清除标签筛选")
+                                }
+                            }
+                            Button(onClick = onRequestCreateNode) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("新节点")
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(
+                    items = filteredAndSorted,
+                    key = { it.node.id }
+                ) { nodeUi ->
+                    val node = nodeUi.node
+                    val nodeColor = NodeColorUtil.parseColor(node.color)
+                    val boardColor = NodeColorUtil.parseColor(nodeUi.boardColorHex)
 
-                        if (node.tagList.isNotEmpty()) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ElevatedCard(
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = if (nodeUi.isSelected) 2.dp else 0.dp,
+                                color = if (nodeUi.isSelected) nodeColor else MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .clickable {
+                                knowledgeViewModel.selectNode(node.id)
+                                onOpenNodeDetail(node.id)
+                            }
+                            .testTag("node_list_card_${node.id}")
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                node.tagList.forEach { tag ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(nodeColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = node.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Surface(
-                                        color = nodeColor.copy(alpha = 0.14f),
+                                        color = boardColor.copy(alpha = 0.16f),
                                         shape = RoundedCornerShape(6.dp)
                                     ) {
                                         Text(
-                                            text = "#$tag",
+                                            text = if (nodeUi.isCrossBoard) {
+                                                "跨界·${nodeUi.boardName}"
+                                            } else {
+                                                nodeUi.boardName
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = nodeColor,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                            color = boardColor,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
                                 }
+                                Text(
+                                    text = DateTimeFormatter.formatRelativeOrShort(node.updatedAt),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
                             Text(
-                                text = "出向 ${nodeUi.outgoingCount} · 入向 ${nodeUi.incomingCount} · (${node.x.toInt()}, ${node.y.toInt()})",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = node.summarySnippet,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                FilledTonalButton(
-                                    onClick = {
-                                        knowledgeViewModel.selectNode(node.id)
-                                        onLocateNodeInGraph(node.id)
+
+                            if (node.tagList.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    node.tagList.forEach { tag ->
+                                        Surface(
+                                            color = nodeColor.copy(alpha = 0.14f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "#$tag",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = nodeColor,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Hub,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("定位")
                                 }
-                                Button(
-                                    onClick = {
-                                        knowledgeViewModel.selectNode(node.id)
-                                        onOpenNodeDetail(node.id)
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "出向 ${nodeUi.outgoingCount} · 入向 ${nodeUi.incomingCount} · (${node.x.toInt()}, ${node.y.toInt()})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            knowledgeViewModel.selectNode(node.id)
+                                            onLocateNodeInGraph(node.id)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Hub,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("定位")
                                     }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.EditNote,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("打开文档")
-                                }
-                                IconButton(
-                                    onClick = { knowledgeViewModel.deleteNode(node.id) }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = "删除",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
+                                    Button(
+                                        onClick = {
+                                            knowledgeViewModel.selectNode(node.id)
+                                            onOpenNodeDetail(node.id)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.EditNote,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("打开文档")
+                                    }
+                                    IconButton(
+                                        onClick = { knowledgeViewModel.deleteNode(node.id) }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "删除",
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -30,10 +30,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DashboardCustomize
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,10 +67,10 @@ import com.example.knowledgegraph.viewmodel.KnowledgeViewModel
 /**
  * 知识工作台「总览」页 (HomeScreen)
  * 设计规范：
- * - 纯粹的主题画板模块化总览（不显示画布预览、不显示+新节点或新建关系等二级画板操作、无重置按钮）
+ * - 纯粹的主题画板模块化总览（支持一键进入「全部主题」全域画板或各独立课题画板）
  * - 顶部呈现全局四维汇总（主题、节点、关系、标签）
  * - 主体采用横竖屏自适应网格（GridCells.Adaptive），每个主题画板作为一个独立标准模块展示其节点、关系、跨界、标签与最近更新概览
- * - 点击任意主题模块即激活该主题并直接进入对应画板空间
+ * - 新建主题时自动按序轮换调色板色标，彻底告别多主题同色混淆
  */
 @Composable
 fun HomeScreen(
@@ -76,6 +79,7 @@ fun HomeScreen(
     onEnterBoard: (boardId: String?) -> Unit
 ) {
     var showCreateBoardDialog by remember { mutableStateOf(false) }
+    var showBackupDialog by remember { mutableStateOf(false) }
     var editingBoard by remember { mutableStateOf<BoardTopic?>(null) }
 
     LazyVerticalGrid(
@@ -87,14 +91,14 @@ fun HomeScreen(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. 顶部标题栏（仅保留明暗主题切换与新建主题操作，移除刷新/重置按钮）
+        // 1. 顶部标题栏（支持明暗主题切换、全量JSON备份、进入全部主题全域画板、新建主题）
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "主题总览",
                         style = MaterialTheme.typography.headlineSmall,
@@ -111,6 +115,15 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     IconButton(
+                        onClick = { showBackupDialog = true },
+                        modifier = Modifier.testTag("backup_workspace_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ImportExport,
+                            contentDescription = "JSON备份与恢复"
+                        )
+                    }
+                    IconButton(
                         onClick = { knowledgeViewModel.toggleDarkTheme() },
                         modifier = Modifier.testTag("toggle_theme_button")
                     ) {
@@ -122,6 +135,23 @@ fun HomeScreen(
                             },
                             contentDescription = "主题明暗切换"
                         )
+                    }
+                    if (appUiState.boards.isNotEmpty()) {
+                        FilledTonalButton(
+                            onClick = {
+                                knowledgeViewModel.selectActiveBoard(null)
+                                onEnterBoard(null)
+                            },
+                            modifier = Modifier.testTag("enter_all_boards_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Hub,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("全部主题")
+                        }
                     }
                     Button(
                         onClick = { showCreateBoardDialog = true },
@@ -139,7 +169,7 @@ fun HomeScreen(
             }
         }
 
-        // 2. 全局四维统计汇总栏（主题 · 节点 · 关系 · 标签）
+        // 2. 全局四维统计汇总栏（主题 · 节点 · 关系 · 标签，点击可进入全域画板）
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -149,24 +179,40 @@ fun HomeScreen(
                     label = "主题",
                     value = "${appUiState.boards.size}",
                     accentHex = "#8B5CF6",
+                    onClick = {
+                        knowledgeViewModel.selectActiveBoard(null)
+                        onEnterBoard(null)
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 GlobalMetricPill(
                     label = "节点",
                     value = "${appUiState.nodes.size}",
                     accentHex = "#6366F1",
+                    onClick = {
+                        knowledgeViewModel.selectActiveBoard(null)
+                        onEnterBoard(null)
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 GlobalMetricPill(
                     label = "关系",
                     value = "${appUiState.edges.size}",
                     accentHex = "#0EA5E9",
+                    onClick = {
+                        knowledgeViewModel.selectActiveBoard(null)
+                        onEnterBoard(null)
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 GlobalMetricPill(
                     label = "标签",
                     value = "${appUiState.allTags.size}",
                     accentHex = "#10B981",
+                    onClick = {
+                        knowledgeViewModel.selectActiveBoard(null)
+                        onEnterBoard(null)
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -199,6 +245,7 @@ fun HomeScreen(
     if (showCreateBoardDialog) {
         TopicBoardDialog(
             initialBoard = null,
+            existingBoardCount = appUiState.boards.size,
             canDelete = false,
             onDismiss = { showCreateBoardDialog = false },
             onConfirm = { name, desc, colorHex ->
@@ -208,9 +255,20 @@ fun HomeScreen(
         )
     }
 
+    if (showBackupDialog) {
+        WorkspaceBackupDialog(
+            initialExportJson = knowledgeViewModel.exportBackupJson(),
+            onDismiss = { showBackupDialog = false },
+            onImportJson = { jsonText ->
+                knowledgeViewModel.importBackupJson(jsonText)
+            }
+        )
+    }
+
     editingBoard?.let { board ->
         TopicBoardDialog(
             initialBoard = board,
+            existingBoardCount = appUiState.boards.size,
             canDelete = true,
             onDismiss = { editingBoard = null },
             onConfirm = { name, desc, colorHex ->
@@ -236,6 +294,7 @@ private fun GlobalMetricPill(
     label: String,
     value: String,
     accentHex: String,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val accent = NodeColorUtil.parseColor(accentHex)
@@ -243,6 +302,8 @@ private fun GlobalMetricPill(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
         shape = RoundedCornerShape(14.dp),
         modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable { onClick() }
     ) {
         Column(
             modifier = Modifier
@@ -533,7 +594,7 @@ private fun EmptyBoardsModule(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "按研究课题或知识领域创建独立主题画板。\n每个主题画板拥有独立的节点、关系与标签统计，并支持跨主题关联节点。",
+                    text = "按研究课题或知识领域创建独立主题画板。\n每个主题画板拥有独立的色标、节点与关系，并支持在「全部主题」画板中跨主题连线。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center

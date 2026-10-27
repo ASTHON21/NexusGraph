@@ -11,6 +11,7 @@ import com.example.knowledgegraph.model.BoardTopic
 import com.example.knowledgegraph.model.EdgeData
 import com.example.knowledgegraph.model.NodeData
 import com.example.knowledgegraph.model.RelationType
+import com.example.knowledgegraph.util.WorkspaceBackupPayload
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -242,6 +243,69 @@ class KnowledgeRepositoryImpl(
     override suspend fun deleteEdge(edgeId: String) = withContext(ioDispatcher) {
         edgeDao.deleteEdgeById(edgeId)
     }
+
+    override suspend fun importWorkspaceBackup(payload: WorkspaceBackupPayload): Int =
+        withContext(ioDispatcher) {
+            val existingBoards = boardDao.observeAllBoards().first().associateBy { it.id }.toMutableMap()
+            var importedCount = 0
+
+            payload.boards.forEach { board ->
+                val clean = board.copy(name = board.name.trim().ifEmpty { "未命名主题" })
+                val entity = BoardTopicEntity.fromDomain(clean)
+                boardDao.upsertBoard(entity)
+                existingBoards[clean.id] = entity
+                importedCount++
+            }
+
+            if (existingBoards.isEmpty() && payload.nodes.isNotEmpty()) {
+                val fallbackBoard = BoardTopic(
+                    id = payload.nodes.first().boardId.ifBlank { "board_default" },
+                    name = "导入主题",
+                    description = "从 JSON 备份恢复的知识空间",
+                    colorHex = "#6366F1",
+                    createdAt = System.currentTimeMillis(),
+                    sortOrder = 0
+                )
+                val entity = BoardTopicEntity.fromDomain(fallbackBoard)
+                boardDao.upsertBoard(entity)
+                existingBoards[fallbackBoard.id] = entity
+                importedCount++
+            }
+
+            val fallbackBoardId = existingBoards.keys.firstOrNull() ?: "board_default"
+            val validNodeIds = nodeDao.observeAllNodes().first().map { it.id }.toMutableSet()
+
+            payload.nodes.forEach { node ->
+                val safeBoardId = if (existingBoards.containsKey(node.boardId)) {
+                    node.boardId
+                } else {
+                    fallbackBoardId
+                }
+                val cleanedNode = node.copy(
+                    title = node.title.trim().ifEmpty { "未命名节点" },
+                    boardId = safeBoardId
+                )
+                nodeDao.upsertNode(NodeEntity.fromDomain(cleanedNode))
+                writeMarkdownSnapshotToFile(cleanedNode)
+                validNodeIds.add(cleanedNode.id)
+                importedCount++
+            }
+
+            payload.edges.forEach { edge ->
+                if (edge.fromNodeId != edge.toNodeId &&
+                    edge.fromNodeId in validNodeIds &&
+                    edge.toNodeId in validNodeIds
+                ) {
+                    val cleanedEdge = edge.copy(
+                        label = edge.label.trim().ifEmpty { edge.type.labelCn }
+                    )
+                    edgeDao.upsertEdge(EdgeEntity.fromDomain(cleanedEdge))
+                    importedCount++
+                }
+            }
+
+            importedCount
+        }
 
     private fun writeMarkdownSnapshotToFile(node: NodeData) {
         runCatching {

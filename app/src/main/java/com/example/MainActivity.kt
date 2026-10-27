@@ -1,8 +1,24 @@
 package com.example
 
-import com.example.knowledgegraph.KnowledgeGraphActivity
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import com.example.knowledgegraph.AppApplication
+import com.example.knowledgegraph.di.AppContainer
+import com.example.knowledgegraph.navigation.KnowledgeGraphApp
 
 /**
- * AndroidManifest 默认启动 Activity，直接继承纯 Kotlin + Jetpack Compose 实现的 KnowledgeGraphActivity
+ * 唯一主启动 Activity 入口，消除重复 Activity 定义
  */
-class MainActivity : KnowledgeGraphActivity()
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        val appContainer = (application as? AppApplication)?.container
+            ?: AppContainer(applicationContext)
+        setContent {
+            KnowledgeGraphApp(container = appContainer)
+        }
+    }
+}

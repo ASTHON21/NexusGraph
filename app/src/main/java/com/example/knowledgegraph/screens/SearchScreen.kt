@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -26,10 +27,12 @@ import androidx.compose.material.icons.filled.FilterAltOff
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,6 +45,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.knowledgegraph.model.AppUiState
@@ -108,9 +112,18 @@ fun SearchScreen(
                 label = { Text("全部主题") }
             )
             appUiState.boards.forEach { board ->
+                val boardColor = NodeColorUtil.parseColor(board.colorHex)
                 FilterChip(
                     selected = appUiState.activeBoardId == board.id,
                     onClick = { knowledgeViewModel.selectActiveBoard(board.id) },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(boardColor)
+                        )
+                    },
                     label = { Text(board.name) }
                 )
             }
@@ -175,114 +188,170 @@ fun SearchScreen(
             fontWeight = FontWeight.Bold
         )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(
-                items = results,
-                key = { it.node.id }
-            ) { nodeUi ->
-                val node = nodeUi.node
-                val nodeColor = NodeColorUtil.parseColor(node.color)
-                val boardColor = NodeColorUtil.parseColor(nodeUi.boardColorHex)
-                val highlightColor = MaterialTheme.colorScheme.primary
-
-                ElevatedCard(
-                    shape = RoundedCornerShape(16.dp),
+        if (results.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                OutlinedCard(
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier
+                        .widthIn(max = 400.dp)
                         .fillMaxWidth()
-                        .clickable {
-                            knowledgeViewModel.selectNode(node.id)
-                            onOpenNodeDetail(node.id)
-                        }
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .clip(CircleShape)
-                                        .background(nodeColor)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = highlightQueryText(
-                                        text = node.title,
-                                        query = appUiState.searchQuery,
-                                        highlightColor = highlightColor
-                                    ),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    color = boardColor.copy(alpha = 0.16f),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Text(
-                                        text = nodeUi.boardName,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = boardColor,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            IconButton(
-                                onClick = {
-                                    knowledgeViewModel.selectNode(node.id)
-                                    onLocateNodeInGraph(node.id)
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Hub,
-                                    contentDescription = "定位"
-                                )
-                            }
-                        }
-
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
                         Text(
-                            text = highlightQueryText(
-                                text = node.summarySnippet,
-                                query = appUiState.searchQuery,
-                                highlightColor = highlightColor
-                            ),
+                            text = "未找到匹配的知识节点",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (hasActiveFilter) {
+                                "可尝试重置筛选条件或切换至「全部主题」扩大检索范围。"
+                            } else {
+                                "当前知识库尚无节点，请先在画板或节点页创建。"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            textAlign = TextAlign.Center
                         )
-
-                        if (node.tagList.isNotEmpty()) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                        if (hasActiveFilter) {
+                            FilledTonalButton(
+                                onClick = {
+                                    knowledgeViewModel.clearFilters()
+                                    knowledgeViewModel.selectActiveBoard(null)
+                                }
                             ) {
-                                node.tagList.forEach { tag ->
+                                Text("重置全部筛选")
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(
+                    items = results,
+                    key = { it.node.id }
+                ) { nodeUi ->
+                    val node = nodeUi.node
+                    val nodeColor = NodeColorUtil.parseColor(node.color)
+                    val boardColor = NodeColorUtil.parseColor(nodeUi.boardColorHex)
+                    val highlightColor = MaterialTheme.colorScheme.primary
+
+                    ElevatedCard(
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                knowledgeViewModel.selectNode(node.id)
+                                onOpenNodeDetail(node.id)
+                            }
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(nodeColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = highlightQueryText(
+                                            text = node.title,
+                                            query = appUiState.searchQuery,
+                                            highlightColor = highlightColor
+                                        ),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Surface(
-                                        color = nodeColor.copy(alpha = 0.14f),
+                                        color = boardColor.copy(alpha = 0.16f),
                                         shape = RoundedCornerShape(6.dp)
                                     ) {
                                         Text(
-                                            text = "#$tag",
+                                            text = nodeUi.boardName,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = nodeColor,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                            color = boardColor,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        knowledgeViewModel.selectNode(node.id)
+                                        onLocateNodeInGraph(node.id)
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Hub,
+                                        contentDescription = "定位"
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = highlightQueryText(
+                                    text = node.summarySnippet,
+                                    query = appUiState.searchQuery,
+                                    highlightColor = highlightColor
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (node.tagList.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    node.tagList.forEach { tag ->
+                                        Surface(
+                                            color = nodeColor.copy(alpha = 0.14f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "#$tag",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = nodeColor,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }

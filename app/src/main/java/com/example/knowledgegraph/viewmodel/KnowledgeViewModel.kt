@@ -5,15 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.knowledgegraph.data.UserPreferencesRepository
 import com.example.knowledgegraph.model.AppUiState
-import com.example.knowledgegraph.model.BoardOverviewModule
 import com.example.knowledgegraph.model.BoardTopic
 import com.example.knowledgegraph.model.EdgeData
-import com.example.knowledgegraph.model.EdgeUiState
 import com.example.knowledgegraph.model.NodeData
-import com.example.knowledgegraph.model.NodeUiState
 import com.example.knowledgegraph.model.RelationType
 import com.example.knowledgegraph.repository.KnowledgeRepository
+import com.example.knowledgegraph.util.GraphDomainService
 import com.example.knowledgegraph.util.GraphLayoutHelper
+import com.example.knowledgegraph.util.NodeColorUtil
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,13 +25,14 @@ private data class FilterSelectionState(
     val selectedNodeId: String? = null,
     val searchQuery: String = "",
     val selectedTag: String? = null,
-    val selectedRelationFilter: RelationType? = null,
-    val statusMessage: String? = null
+    val selectedRelationFilter: RelationType? = null
 )
 
 /**
- * 全局知识图谱工作台 ViewModel
- * 负责聚合各主题画板模块概览指标、跨主题节点投影、无碰撞坐标分配及关系去重更新
+ * 全局知识图谱工作台 ViewModel：
+ * - 将纯领域计算与 JSON 备份编解码委托给 GraphDomainService（O(N+E) 预聚合）
+ * - 将瞬态提示消息 (statusMessage) 拆分为独立 StateFlow，避免每次弹出/关闭提示触发全图重算
+ * - 支持全量工作区 JSON 导出与恢复导入
  */
 class KnowledgeViewModel(
     private val repository: KnowledgeRepository,
@@ -40,8 +40,9 @@ class KnowledgeViewModel(
 ) : ViewModel() {
 
     private val filterState = MutableStateFlow(FilterSelectionState())
+    private val statusMessageFlow = MutableStateFlow<String?>(null)
 
-    val uiState: StateFlow<AppUiState> = combine(
+    private val coreGraphState = combine(
         repository.observeAllBoards(),
         repository.observeAllNodes(),
         repository.observeAllEdges(),
@@ -51,110 +52,41 @@ class KnowledgeViewModel(
         val boardMap = boards.associateBy { it.id }
         val nodeMap = nodes.associateBy { it.id }
 
-        val activeBoardId = prefs.activeBoardId?.takeIf { id -> boardMap.containsKey(id) }
-            ?: boards.firstOrNull()?.id
+        // 当用户主动选择「全部主题」(isAllBoardsSelected == true) 时，保持 activeBoardId = null；
+        // 仅在未选择全部主题且尚无有效 boardId 时，才默认指向第一个主题画板
+        val activeBoardId = if (prefs.isAllBoardsSelected) {
+            null
+        } else {
+            prefs.activeBoardId?.takeIf { id -> boardMap.containsKey(id) }
+                ?: boards.firstOrNull()?.id
+        }
+
         val activeSelectedId = filter.selectedNodeId
             ?.takeIf { id -> nodeMap.containsKey(id) }
             ?: prefs.lastOpenedNodeId?.takeIf { id -> nodeMap.containsKey(id) }
 
-        val highlightedNeighborIds = if (activeSelectedId != null) {
-            edges.mapNotNull { edge ->
-                when (edge.fromNodeId) {
-                    activeSelectedId -> edge.toNodeId
-                    else -> if (edge.toNodeId == activeSelectedId) edge.fromNodeId else null
-                }
-            }.toSet()
-        } else {
-            emptySet()
-        }
+        val nodeUiList = GraphDomainService.buildNodeUiList(
+            nodes = nodes,
+            edges = edges,
+            boardMap = boardMap,
+            activeBoardId = activeBoardId,
+            activeSelectedId = activeSelectedId
+        )
 
-        val nodeUiList = nodes.map { node ->
-            val incoming = edges.count { it.toNodeId == node.id }
-            val outgoing = edges.count { it.fromNodeId == node.id }
-            val board = boardMap[node.boardId]
-            val isCross = activeBoardId != null && node.boardId != activeBoardId
-            NodeUiState(
-                node = node,
-                boardName = board?.name ?: "未分类",
-                boardColorHex = board?.colorHex ?: node.color,
-                isCrossBoard = isCross,
-                isSelected = node.id == activeSelectedId,
-                isHighlighted = node.id == activeSelectedId || node.id in highlightedNeighborIds,
-                incomingCount = incoming,
-                outgoingCount = outgoing
-            )
-        }
+        val edgeUiList = GraphDomainService.buildEdgeUiList(
+            edges = edges,
+            nodeMap = nodeMap,
+            activeSelectedId = activeSelectedId
+        )
 
-        val edgeUiList = edges.map { edge ->
-            val fromNode = nodeMap[edge.fromNodeId]
-            val toNode = nodeMap[edge.toNodeId]
-            val isCrossEdge = fromNode != null && toNode != null && fromNode.boardId != toNode.boardId
-            EdgeUiState(
-                edge = edge,
-                fromNode = fromNode,
-                toNode = toNode,
-                isCrossBoard = isCrossEdge,
-                isHighlighted = activeSelectedId != null &&
-                    (edge.fromNodeId == activeSelectedId || edge.toNodeId == activeSelectedId)
-            )
-        }
+        val boardModules = GraphDomainService.buildBoardOverviewModules(
+            boards = boards,
+            nodes = nodes,
+            edges = edges,
+            activeBoardId = activeBoardId
+        )
 
-        // 计算每个主题画板的独立模块概览数据（主题、节点、内部关系、跨界关系、标签、最近更新）
-        val boardModules = boards.map { board ->
-            val boardNodes = nodes.filter { it.boardId == board.id }
-            val boardNodeIds = boardNodes.map { it.id }.toSet()
-
-            var internalCount = 0
-            var crossCount = 0
-            val relCounts = mutableMapOf<RelationType, Int>()
-
-            edges.forEach { edge ->
-                val fromIn = edge.fromNodeId in boardNodeIds
-                val toIn = edge.toNodeId in boardNodeIds
-                if (fromIn && toIn) {
-                    internalCount++
-                    relCounts[edge.type] = (relCounts[edge.type] ?: 0) + 1
-                } else if (fromIn || toIn) {
-                    crossCount++
-                    relCounts[edge.type] = (relCounts[edge.type] ?: 0) + 1
-                }
-            }
-
-            val tagFreq = mutableMapOf<String, Int>()
-            boardNodes.forEach { n ->
-                n.tagList.forEach { t ->
-                    val clean = t.trim()
-                    if (clean.isNotEmpty()) {
-                        tagFreq[clean] = (tagFreq[clean] ?: 0) + 1
-                    }
-                }
-            }
-            val sortedTags = tagFreq.entries
-                .sortedByDescending { it.value }
-                .map { it.key }
-
-            val latestNode = boardNodes.maxByOrNull { it.updatedAt }
-
-            BoardOverviewModule(
-                board = board,
-                isSelected = board.id == activeBoardId,
-                nodeCount = boardNodes.size,
-                internalEdgeCount = internalCount,
-                crossBoardEdgeCount = crossCount,
-                tagCount = sortedTags.size,
-                topTags = sortedTags.take(5),
-                relationCounts = relCounts,
-                latestNodeTitle = latestNode?.title,
-                latestUpdatedAt = latestNode?.updatedAt ?: board.createdAt
-            )
-        }
-
-        val allTags = nodes
-            .flatMap { it.tagList }
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .sorted()
+        val allTags = GraphDomainService.extractAllTags(nodes)
 
         AppUiState(
             boards = boards,
@@ -174,9 +106,15 @@ class KnowledgeViewModel(
             isDarkTheme = prefs.isDarkTheme,
             showEdgeLabels = prefs.showEdgeLabels,
             showCanvasGrid = prefs.showCanvasGrid,
-            isLoading = false,
-            statusMessage = filter.statusMessage
+            isLoading = false
         )
+    }
+
+    val uiState: StateFlow<AppUiState> = combine(
+        coreGraphState,
+        statusMessageFlow
+    ) { coreState, statusMsg ->
+        coreState.copy(statusMessage = statusMsg)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -202,15 +140,15 @@ class KnowledgeViewModel(
         onCreated: ((BoardTopic) -> Unit)? = null
     ) {
         viewModelScope.launch {
+            val nextIndex = uiState.value.boards.size + 1
+            val cleanName = name.trim().ifEmpty { "主题 $nextIndex" }
             val created = repository.createBoard(
-                name = name,
-                description = description,
+                name = cleanName,
+                description = description.trim().ifEmpty { "课题知识空间" },
                 colorHex = colorHex
             )
             preferencesRepository.setActiveBoardId(created.id)
-            filterState.update {
-                it.copy(statusMessage = "已创建主题「${created.name}」")
-            }
+            statusMessageFlow.value = "已创建主题「${created.name}」"
             onCreated?.invoke(created)
         }
     }
@@ -218,24 +156,18 @@ class KnowledgeViewModel(
     fun saveBoard(board: BoardTopic) {
         viewModelScope.launch {
             repository.saveBoard(board)
-            filterState.update {
-                it.copy(statusMessage = "已更新主题「${board.name}」")
-            }
+            statusMessageFlow.value = "已更新主题「${board.name}」"
         }
     }
 
     fun deleteBoard(boardId: String) {
         viewModelScope.launch {
             val targetName = uiState.value.boards.firstOrNull { it.id == boardId }?.name ?: "主题"
-            repository.deleteBoard(boardId)
             val remaining = uiState.value.boards.filter { it.id != boardId }
+            repository.deleteBoard(boardId)
             preferencesRepository.setActiveBoardId(remaining.firstOrNull()?.id)
-            filterState.update {
-                it.copy(
-                    selectedNodeId = null,
-                    statusMessage = "已删除主题「$targetName」及其所属节点"
-                )
-            }
+            filterState.update { it.copy(selectedNodeId = null) }
+            statusMessageFlow.value = "已删除主题「$targetName」及其所属节点"
         }
     }
 
@@ -286,26 +218,44 @@ class KnowledgeViewModel(
         onCreated: ((NodeData) -> Unit)? = null
     ) {
         viewModelScope.launch {
-            // 若当前尚未创建任何主题画板，先自动创建一个默认主题画板以保证外键完整性
+            val currentBoards = uiState.value.boards
+            val palette = NodeColorUtil.paletteOptions
+            val defaultBoardColor = palette[currentBoards.size % palette.size].hex
+
             val ensuredBoardId = boardId
-                ?.takeIf { id -> uiState.value.boards.any { it.id == id } }
-                ?: uiState.value.activeBoardId?.takeIf { id -> uiState.value.boards.any { it.id == id } }
-                ?: uiState.value.boards.firstOrNull()?.id
+                ?.takeIf { id -> currentBoards.any { it.id == id } }
+                ?: uiState.value.activeBoardId?.takeIf { id -> currentBoards.any { it.id == id } }
+                ?: currentBoards.firstOrNull()?.id
                 ?: repository.createBoard(
-                    name = "默认主题",
+                    name = "主题 1",
                     description = "基础课题知识空间",
-                    colorHex = color
+                    colorHex = color.ifBlank { defaultBoardColor }
                 ).also { preferencesRepository.setActiveBoardId(it.id) }.id
 
-            val boardNodes = uiState.value.nodes.filter { it.boardId == ensuredBoardId }
+            val allExistingNodes = uiState.value.nodes
+            val boardNodes = allExistingNodes.filter { it.boardId == ensuredBoardId }
+
+            val preferredCenter = when {
+                spawnCenterWorld != Offset.Zero -> spawnCenterWorld
+                boardNodes.isNotEmpty() -> Offset(
+                    x = boardNodes.map { it.x }.average().toFloat(),
+                    y = boardNodes.map { it.y }.average().toFloat()
+                )
+                else -> GraphDomainService.computeBoardAnchorCenter(ensuredBoardId, uiState.value.boards)
+            }
+
             val spawnPos = GraphLayoutHelper.findNonOverlappingSpawnPosition(
-                viewportCenterWorld = spawnCenterWorld,
-                existingNodes = boardNodes
+                viewportCenterWorld = preferredCenter,
+                existingNodes = allExistingNodes
             )
 
+            val nextNodeNumber = allExistingNodes.size + 1
+            val cleanTitle = title.trim().ifEmpty { "节点 $nextNodeNumber" }
+            val ensuredMarkdown = markdownContent.ifBlank { "# $cleanTitle\n\n" }
+
             val created = repository.createNode(
-                title = title,
-                markdownContent = markdownContent,
+                title = cleanTitle,
+                markdownContent = ensuredMarkdown,
                 tagList = tagList,
                 color = color,
                 x = spawnPos.x,
@@ -313,12 +263,8 @@ class KnowledgeViewModel(
                 boardId = ensuredBoardId
             )
             preferencesRepository.setLastOpenedNodeId(created.id)
-            filterState.update {
-                it.copy(
-                    selectedNodeId = created.id,
-                    statusMessage = "已创建节点「${created.title}」"
-                )
-            }
+            filterState.update { it.copy(selectedNodeId = created.id) }
+            statusMessageFlow.value = "已创建节点「${created.title}」"
             onCreated?.invoke(created)
         }
     }
@@ -327,9 +273,7 @@ class KnowledgeViewModel(
         viewModelScope.launch {
             repository.saveNode(node)
             preferencesRepository.setLastOpenedNodeId(node.id)
-            filterState.update {
-                it.copy(statusMessage = "已保存「${node.title}」")
-            }
+            statusMessageFlow.value = "已保存「${node.title}」"
         }
     }
 
@@ -338,11 +282,9 @@ class KnowledgeViewModel(
             val targetTitle = uiState.value.nodes.firstOrNull { it.id == nodeId }?.title ?: "节点"
             repository.deleteNode(nodeId)
             filterState.update { state ->
-                state.copy(
-                    selectedNodeId = if (state.selectedNodeId == nodeId) null else state.selectedNodeId,
-                    statusMessage = "已删除「$targetTitle」"
-                )
+                state.copy(selectedNodeId = if (state.selectedNodeId == nodeId) null else state.selectedNodeId)
             }
+            statusMessageFlow.value = "已删除「$targetTitle」"
         }
     }
 
@@ -360,9 +302,7 @@ class KnowledgeViewModel(
                 label = label
             )
             if (created != null) {
-                filterState.update {
-                    it.copy(statusMessage = "已保存「${type.labelCn}」连接")
-                }
+                statusMessageFlow.value = "已保存「${type.labelCn}」连接"
             }
         }
     }
@@ -370,18 +310,14 @@ class KnowledgeViewModel(
     fun updateEdge(edge: EdgeData) {
         viewModelScope.launch {
             repository.updateEdge(edge)
-            filterState.update {
-                it.copy(statusMessage = "已更新「${edge.type.labelCn}」连接")
-            }
+            statusMessageFlow.value = "已更新「${edge.type.labelCn}」连接"
         }
     }
 
     fun deleteEdge(edgeId: String) {
         viewModelScope.launch {
             repository.deleteEdge(edgeId)
-            filterState.update {
-                it.copy(statusMessage = "已移除关系连线")
-            }
+            statusMessageFlow.value = "已移除关系连线"
         }
     }
 
@@ -425,7 +361,7 @@ class KnowledgeViewModel(
                     ?: uiState.value.activeBoardId
                     ?: uiState.value.boards.firstOrNull()?.id
                     ?: repository.createBoard(
-                        name = "默认主题",
+                        name = "主题 1",
                         description = "基础课题知识空间",
                         colorHex = "#6366F1"
                     ).id
@@ -433,11 +369,11 @@ class KnowledgeViewModel(
                 val baseCenter = if (sourceNode != null) {
                     Offset(sourceNode.x, sourceNode.y)
                 } else {
-                    Offset.Zero
+                    GraphDomainService.computeBoardAnchorCenter(targetBoardId, uiState.value.boards)
                 }
                 val spawnPos = GraphLayoutHelper.findNonOverlappingSpawnPosition(
                     viewportCenterWorld = baseCenter,
-                    existingNodes = uiState.value.nodes.filter { it.boardId == targetBoardId }
+                    existingNodes = uiState.value.nodes
                 )
 
                 val created = repository.createNode(
@@ -463,7 +399,34 @@ class KnowledgeViewModel(
         }
     }
 
+    fun exportBackupJson(): String {
+        val state = uiState.value
+        return GraphDomainService.exportWorkspaceToJson(
+            boards = state.boards,
+            nodes = state.nodes,
+            edges = state.edges
+        )
+    }
+
+    fun importBackupJson(jsonText: String) {
+        viewModelScope.launch {
+            GraphDomainService.parseWorkspaceFromJson(jsonText)
+                .onSuccess { payload ->
+                    if (payload.boards.isEmpty() && payload.nodes.isEmpty()) {
+                        statusMessageFlow.value = "未解析到有效的主题或节点数据，请检查 JSON 格式"
+                    } else {
+                        repository.importWorkspaceBackup(payload)
+                        statusMessageFlow.value =
+                            "成功恢复 ${payload.boards.size} 个主题、${payload.nodes.size} 个节点与 ${payload.edges.size} 条关系"
+                    }
+                }
+                .onFailure {
+                    statusMessageFlow.value = "备份恢复失败：请确认粘贴的是完整 JSON 备份内容"
+                }
+        }
+    }
+
     fun clearStatusMessage() {
-        filterState.update { it.copy(statusMessage = null) }
+        statusMessageFlow.value = null
     }
 }

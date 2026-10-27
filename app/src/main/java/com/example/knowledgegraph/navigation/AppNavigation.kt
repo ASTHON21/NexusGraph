@@ -333,6 +333,7 @@ fun KnowledgeGraphApp(container: AppContainer) {
                 CreateNodeDialog(
                     boards = appUiState.boards,
                     initialBoardId = appUiState.activeBoardId,
+                    existingNodeCount = appUiState.nodes.size,
                     onDismiss = { showCreateNodeDialog = false },
                     onConfirm = { title, markdown, tags, colorHex, boardId ->
                         showCreateNodeDialog = false

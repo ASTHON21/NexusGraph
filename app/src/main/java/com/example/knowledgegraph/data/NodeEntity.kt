@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 import com.example.knowledgegraph.model.NodeData
 
 /**
- * Room 数据库节点实体表（外键级联绑定 BoardTopicEntity，删除主题画板时自动清理其下节点）
+ * Room 数据库节点实体表（外键级联绑定 BoardTopicEntity，包含 boardId 与 updatedAt 索引）
  */
 @Entity(
     tableName = "knowledge_nodes",
@@ -19,7 +19,10 @@ import com.example.knowledgegraph.model.NodeData
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["boardId"])]
+    indices = [
+        Index(value = ["boardId"]),
+        Index(value = ["updatedAt"])
+    ]
 )
 data class NodeEntity(
     @PrimaryKey

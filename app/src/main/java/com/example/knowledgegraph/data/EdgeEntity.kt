@@ -8,7 +8,7 @@ import com.example.knowledgegraph.model.EdgeData
 import com.example.knowledgegraph.model.RelationType
 
 /**
- * Room 数据库关系边实体表（当父节点删除时级联清理对应边）
+ * Room 数据库关系边实体表（当父节点删除时级联清理对应边，含单列与复合对端索引）
  */
 @Entity(
     tableName = "knowledge_edges",
@@ -28,7 +28,8 @@ import com.example.knowledgegraph.model.RelationType
     ],
     indices = [
         Index(value = ["fromNodeId"]),
-        Index(value = ["toNodeId"])
+        Index(value = ["toNodeId"]),
+        Index(value = ["fromNodeId", "toNodeId"])
     ]
 )
 data class EdgeEntity(

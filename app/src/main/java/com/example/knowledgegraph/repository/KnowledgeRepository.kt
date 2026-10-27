@@ -4,10 +4,11 @@ import com.example.knowledgegraph.model.BoardTopic
 import com.example.knowledgegraph.model.EdgeData
 import com.example.knowledgegraph.model.NodeData
 import com.example.knowledgegraph.model.RelationType
+import com.example.knowledgegraph.util.WorkspaceBackupPayload
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 知识图谱核心仓库接口：管理主题画板、知识节点、语义关系（含去重与编辑）及本地 Markdown 文件同步
+ * 知识图谱核心仓库接口：管理主题画板、知识节点、语义关系（含去重与编辑）、本地 Markdown 文件同步与全量 JSON 备份导入
  */
 interface KnowledgeRepository {
 
@@ -61,4 +62,6 @@ interface KnowledgeRepository {
     suspend fun updateEdge(edge: EdgeData)
 
     suspend fun deleteEdge(edgeId: String)
+
+    suspend fun importWorkspaceBackup(payload: WorkspaceBackupPayload): Int
 }

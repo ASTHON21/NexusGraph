@@ -16,3 +16,8 @@
 local.properties
 .env
 debug.keystore
+/public
+/.build-outputs
+/.aistudio
+*.mp4
+

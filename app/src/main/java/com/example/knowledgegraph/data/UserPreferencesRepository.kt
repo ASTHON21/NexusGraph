@@ -18,9 +18,12 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "knowledge_workspace_prefs"
 )
 
+const val ALL_BOARDS_SENTINEL = "__ALL_BOARDS__"
+
 data class WorkspacePreferences(
     val isDarkTheme: Boolean = true,
     val activeBoardId: String? = null,
+    val isAllBoardsSelected: Boolean = false,
     val showCrossBoardNodes: Boolean = true,
     val lastOpenedNodeId: String? = null,
     val showEdgeLabels: Boolean = true,
@@ -52,9 +55,12 @@ class UserPreferencesRepository(private val context: Context) {
             }
         }
         .map { prefs ->
+            val rawBoardId = prefs[Keys.ACTIVE_BOARD_ID]
+            val isAllSelected = rawBoardId == ALL_BOARDS_SENTINEL
             WorkspacePreferences(
                 isDarkTheme = prefs[Keys.IS_DARK_THEME] ?: true,
-                activeBoardId = prefs[Keys.ACTIVE_BOARD_ID],
+                activeBoardId = if (isAllSelected) null else rawBoardId,
+                isAllBoardsSelected = isAllSelected,
                 showCrossBoardNodes = prefs[Keys.SHOW_CROSS_BOARD_NODES] ?: true,
                 lastOpenedNodeId = prefs[Keys.LAST_OPENED_NODE_ID],
                 showEdgeLabels = prefs[Keys.SHOW_EDGE_LABELS] ?: true,
@@ -69,10 +75,14 @@ class UserPreferencesRepository(private val context: Context) {
         }
     }
 
+    /**
+     * 当 boardId == null 时，显式写入 ALL_BOARDS_SENTINEL 表示用户主动选择了「全部主题」，
+     * 避免被 ViewModel 误判为未初始化而强制回退到第一个主题画板。
+     */
     suspend fun setActiveBoardId(boardId: String?) {
         context.dataStore.edit { prefs ->
             if (boardId.isNullOrBlank()) {
-                prefs.remove(Keys.ACTIVE_BOARD_ID)
+                prefs[Keys.ACTIVE_BOARD_ID] = ALL_BOARDS_SENTINEL
             } else {
                 prefs[Keys.ACTIVE_BOARD_ID] = boardId
             }

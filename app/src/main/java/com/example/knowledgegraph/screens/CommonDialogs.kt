@@ -43,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,10 +52,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.knowledgegraph.model.BoardTopic
 import com.example.knowledgegraph.model.EdgeData
 import com.example.knowledgegraph.model.NodeData
@@ -62,22 +70,37 @@ import com.example.knowledgegraph.model.RelationType
 import com.example.knowledgegraph.util.NodeColorUtil
 
 /**
- * 新建或编辑课题画板空间弹窗（含二次删除确认，防止误删）
+ * 新建或编辑课题画板空间弹窗：
+ * - 新建时按已有主题数量自动轮换默认色标，避免所有主题同色
+ * - 打开时自动聚焦名称输入框，支持空标题智能生成「主题 N」
+ * - 编辑时含二次删除确认，防止误删
  */
 @Composable
 fun TopicBoardDialog(
     initialBoard: BoardTopic? = null,
+    existingBoardCount: Int = 0,
     canDelete: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (name: String, description: String, colorHex: String) -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
+    val palette = NodeColorUtil.paletteOptions
+    val autoColorHex = palette[existingBoardCount.coerceAtLeast(0) % palette.size].hex
+    val defaultNumberedName = "主题 ${existingBoardCount + 1}"
+
     var name by remember { mutableStateOf(initialBoard?.name ?: "") }
     var description by remember { mutableStateOf(initialBoard?.description ?: "") }
     var selectedColorHex by remember {
-        mutableStateOf(initialBoard?.colorHex ?: NodeColorUtil.paletteOptions.first().hex)
+        mutableStateOf(initialBoard?.colorHex ?: autoColorHex)
     }
     var confirmDeleteMode by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (initialBoard == null) {
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
 
     if (confirmDeleteMode && initialBoard != null && onDelete != null) {
         AlertDialog(
@@ -149,10 +172,11 @@ fun TopicBoardDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("主题名称") },
-                    placeholder = { Text("输入课题或领域名称") },
+                    placeholder = { Text("留空默认命名为「$defaultNumberedName」") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusRequester(focusRequester)
                         .testTag("board_name_input")
                 )
 
@@ -166,7 +190,7 @@ fun TopicBoardDialog(
                 )
 
                 Text(
-                    text = "主题色标",
+                    text = "主题色标（已自动分配区分色）",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -212,8 +236,8 @@ fun TopicBoardDialog(
             Button(
                 onClick = {
                     onConfirm(
-                        name.ifBlank { "未命名主题" },
-                        description.ifBlank { "课题知识空间" },
+                        name.trim().ifBlank { defaultNumberedName },
+                        description.trim().ifBlank { "课题知识空间" },
                         selectedColorHex
                     )
                 },
@@ -231,13 +255,14 @@ fun TopicBoardDialog(
 }
 
 /**
- * 新建知识节点弹窗（纯净无预置模板噪音）
+ * 新建知识节点弹窗（自动聚焦标题输入框 + 支持按所属主题同步色标与智能序号命名）
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CreateNodeDialog(
     boards: List<BoardTopic>,
     initialBoardId: String?,
+    existingNodeCount: Int = 0,
     onDismiss: () -> Unit,
     onConfirm: (title: String, markdown: String, tags: List<String>, colorHex: String, boardId: String?) -> Unit
 ) {
@@ -253,6 +278,12 @@ fun CreateNodeDialog(
         mutableStateOf(defaultBoard?.colorHex ?: NodeColorUtil.paletteOptions.first().hex)
     }
     var markdownContent by remember { mutableStateOf("") }
+    val defaultNodeTitle = "节点 ${existingNodeCount + 1}"
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -284,11 +315,20 @@ fun CreateNodeDialog(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         boards.forEach { board ->
+                            val bColor = NodeColorUtil.parseColor(board.colorHex)
                             FilterChip(
                                 selected = selectedBoardId == board.id,
                                 onClick = {
                                     selectedBoardId = board.id
                                     selectedColorHex = board.colorHex
+                                },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(bColor)
+                                    )
                                 },
                                 label = { Text(board.name) }
                             )
@@ -300,10 +340,11 @@ fun CreateNodeDialog(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text("节点标题") },
-                    placeholder = { Text("输入概念或文档标题") },
+                    placeholder = { Text("输入标题，留空默认为「$defaultNodeTitle」") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusRequester(focusRequester)
                         .testTag("create_node_title_input")
                 )
 
@@ -418,7 +459,7 @@ fun CreateNodeDialog(
                     if (pendingTag.isNotEmpty() && !finalTags.contains(pendingTag)) {
                         finalTags.add(pendingTag)
                     }
-                    val cleanTitle = title.trim().ifBlank { "未命名节点" }
+                    val cleanTitle = title.trim().ifBlank { defaultNodeTitle }
                     val finalMarkdown = markdownContent.ifBlank { "# $cleanTitle\n\n" }
                     onConfirm(
                         cleanTitle,
@@ -823,3 +864,103 @@ fun WikiLinkPickerDialog(
         }
     )
 }
+
+/**
+ * 全量工作区 JSON 备份导出与恢复导入弹窗
+ */
+@Composable
+fun WorkspaceBackupDialog(
+    initialExportJson: String,
+    onDismiss: () -> Unit,
+    onImportJson: (String) -> Unit
+) {
+    @Suppress("DEPRECATION")
+    val clipboardManager = LocalClipboardManager.current
+    var jsonContent by remember { mutableStateOf(initialExportJson) }
+    var copiedBanner by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "工作区 JSON 备份与恢复",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 540.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "可一键复制下方完整 JSON 备份以跨设备保存，或粘贴已有的备份 JSON 点击「导入恢复」合并到当前工作区。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(jsonContent))
+                            copiedBanner = true
+                        },
+                        modifier = Modifier.testTag("copy_backup_json_button")
+                    ) {
+                        Text(if (copiedBanner) "已复制备份 JSON" else "复制备份 JSON")
+                    }
+                    TextButton(
+                        onClick = {
+                            clipboardManager.getText()?.text?.let { clip ->
+                                if (clip.isNotBlank()) {
+                                    jsonContent = clip
+                                }
+                            }
+                        }
+                    ) {
+                        Text("从剪贴板粘贴")
+                    }
+                }
+
+                OutlinedTextField(
+                    value = jsonContent,
+                    onValueChange = {
+                        jsonContent = it
+                        copiedBanner = false
+                    },
+                    label = { Text("JSON 备份数据（含全部主题、节点坐标、Markdown 与关系边）") },
+                    minLines = 8,
+                    maxLines = 14,
+                    textStyle = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("backup_json_input")
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onImportJson(jsonContent)
+                    onDismiss()
+                },
+                modifier = Modifier.testTag("confirm_import_backup_button")
+            ) {
+                Text("导入恢复")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
+}
+
